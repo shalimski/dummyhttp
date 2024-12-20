@@ -23,3 +23,21 @@ This is a simple HTTP server written in Go that responds with a JSON message con
 ```bash
 > ./dummyhttp -l :9090 -m "Hello, Go!"
 ```
+```bash
+> curl localhost:9090/hey
+```
+```json
+{
+ "proto": "HTTP/1.1",
+ "host": "localhost:9090",
+ "request": "GET /hey",
+ "headers": {
+  "Accept": "*/*",
+  "User-Agent": "curl/8.5.0"
+ },
+ "message": "Hello, Go!",
+ "body": "",
+ "remote_addr": "[::1]:43414",
+ "content_length": 0
+}
+```
