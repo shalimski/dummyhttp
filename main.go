@@ -1,58 +1,42 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"flag"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
-	"time"
-)
 
-var (
-	listen  = flag.String("l", ":8080", "address to listen on")
-	message = flag.String("m", "hello, world", "message to return")
-	help    = flag.Bool("h", false, "show help")
+	"github.com/shalimski/dummyhttp/config"
+	"github.com/shalimski/dummyhttp/handlers"
 )
-
-type response struct {
-	Proto         string            `json:"proto"`
-	Host          string            `json:"host"`
-	Request       string            `json:"request"`
-	Headers       map[string]string `json:"headers"`
-	Message       string            `json:"message"`
-	Body          string            `json:"body"`
-	RemoteAddr    string            `json:"remote_addr"`
-	ContentLength int64             `json:"content_length"`
-}
 
 func main() {
-	slog.Info("dummy-http")
-	flag.Parse()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		slog.Error("loading config", "error", err.Error())
+		os.Exit(1)
+	}
 
-	if *help {
-		flag.Usage()
-		os.Exit(0)
+	handler, err := handlers.New(cfg.Mode, cfg.Handler)
+	if err != nil {
+		slog.Error("creating handler", "error", err.Error())
+		os.Exit(1)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	const commonTimeout = 5 * time.Second
 	srv := http.Server{
-		Addr:              *listen,
-		Handler:           handler(),
-		ReadHeaderTimeout: commonTimeout,
-		WriteTimeout:      commonTimeout,
-		IdleTimeout:       commonTimeout,
+		Addr:              cfg.Server.Listen,
+		Handler:           handler,
+		ReadHeaderTimeout: cfg.Server.Timeout,
+		WriteTimeout:      cfg.Server.Timeout,
+		IdleTimeout:       cfg.Server.Timeout,
 	}
-	slog.Info("starting server", "listen", *listen)
+	slog.Info("starting server", "listen", cfg.Server.Listen)
 
 	go func() {
 		<-ctx.Done()
@@ -67,42 +51,5 @@ func main() {
 		} else {
 			slog.Info("server stopped")
 		}
-	}
-}
-
-func handler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		resp := response{
-			Proto:         r.Proto,
-			Host:          r.Host,
-			Request:       r.Method + " " + r.RequestURI,
-			Headers:       make(map[string]string, len(r.Header)),
-			Message:       *message,
-			Body:          "",
-			RemoteAddr:    r.RemoteAddr,
-			ContentLength: r.ContentLength,
-		}
-
-		buf := bytes.Buffer{}
-		_, err := buf.ReadFrom(r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		resp.Body = buf.String()
-		defer r.Body.Close()
-
-		for k, vv := range r.Header {
-			resp.Headers[k] = strings.Join(vv, "; ")
-		}
-
-		jsonResp, err := json.MarshalIndent(resp, "", " ")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(jsonResp)
 	}
 }
